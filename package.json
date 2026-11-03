@@ -1,0 +1,21 @@
+{
+  "name": "runlens-ai",
+  "private": true,
+  "description": "Statistical reliability testing and behavioral analysis for AI agents.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" run build",
+    "test": "pnpm -r --filter \"./packages/**\" run test",
+    "typecheck": "pnpm -r run typecheck",
+    "example": "pnpm --filter customer-support-example run reliability",
+    "dashboard": "pnpm --filter @runlens/dashboard run dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

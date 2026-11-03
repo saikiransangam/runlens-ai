@@ -1,0 +1,15 @@
+{
+  "name": "customer-support-example",
+  "private": true,
+  "type": "module",
+  "description": "Compares three simulated support agents (and optionally real LLMs) on return-policy scenarios.",
+  "scripts": {
+    "reliability": "runlens run --config runlens.config.ts --no-gate",
+    "reliability:ci": "runlens run --config runlens.ci.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@runlens/core": "workspace:*",
+    "runlens": "workspace:*"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "runlens",
+  "version": "0.1.0",
+  "description": "CLI for RunLens: run AI agent scenarios repeatedly, measure reliability with confidence intervals, and gate releases in CI.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "runlens": "./dist/cli.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@runlens/core": "workspace:*",
+    "commander": "^15.0.0",
+    "jiti": "^2.7.0"
+  }
+}
