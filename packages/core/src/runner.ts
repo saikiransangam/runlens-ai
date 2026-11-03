@@ -57,6 +57,12 @@ export interface RunnerOptions {
   k?: number[];
   /** Confidence level for intervals. Default 0.95. */
   confidence?: number;
+  /**
+   * Stop launching runs for an (agent, scenario) once this many runs in a row
+   * failed with the same error (bad key, no credits, unknown model). The
+   * remaining runs are recorded as skipped errors. Default 3; 0 disables.
+   */
+  abortAfterIdenticalErrors?: number;
   cluster?: ClusterOptions;
   onRun?: (event: RunEvent) => void;
 }
@@ -71,6 +77,18 @@ export interface SuiteInput {
 }
 
 class TimeoutError extends Error {}
+
+/**
+ * Throw this (or any error with `retryable: false`) from an agent for errors
+ * that cannot succeed on retry, such as authentication or quota failures.
+ */
+export class PermanentError extends Error {
+  readonly retryable = false;
+}
+
+function isPermanent(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { retryable?: unknown }).retryable === false;
+}
 
 async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
@@ -182,6 +200,7 @@ export class ReliabilityRunner {
       toolMode: options.toolMode ?? "frozen",
       k: options.k ?? [1, 3, 5, 10],
       confidence: options.confidence ?? 0.95,
+      abortAfterIdenticalErrors: options.abortAfterIdenticalErrors ?? 3,
       cluster: options.cluster,
       onRun: options.onRun,
     };
@@ -189,17 +208,30 @@ export class ReliabilityRunner {
   }
 
   /** Runs one scenario against one agent `runs` times and analyzes the results. */
-  async evaluate(agent: AgentDefinition, scenario: Scenario): Promise<ScenarioReport> {
+  async evaluate(agent: AgentDefinition, scenario: Scenario, skipReason?: string): Promise<ScenarioReport> {
     const { runs: n, concurrency, toolMode } = this.options;
     const cache = new Map<string, Promise<{ result?: unknown; error?: string }>>();
     const records: RunRecord[] = new Array(n);
     let completed = 0;
+    const limit = this.options.abortAfterIdenticalErrors;
+    let streak = { error: "", count: 0 };
+    let abortReason: string | undefined = skipReason;
 
     await pool(
       Array.from({ length: n }, (_, i) => i),
       concurrency,
       async (index) => {
-        records[index] = await this.executeOnce(agent, scenario, index, toolMode, cache);
+        if (abortReason) {
+          records[index] = skippedRun(index, scenario.input, abortReason);
+        } else {
+          const run = await this.executeOnce(agent, scenario, index, toolMode, cache);
+          records[index] = run;
+          if (run.status === "error" && run.error === streak.error) streak.count++;
+          else streak = run.status === "error" ? { error: run.error ?? "", count: 1 } : { error: "", count: 0 };
+          if (limit > 0 && streak.count >= limit && !abortReason) {
+            abortReason = `Skipped after ${limit} identical errors: ${streak.error}`;
+          }
+        }
         completed++;
         this.options.onRun?.({ agent: agent.name, scenarioId: scenario.id, run: records[index]!, completed, total: n });
       },
@@ -226,8 +258,13 @@ export class ReliabilityRunner {
   async runSuite(input: SuiteInput): Promise<SuiteReport> {
     const reports: ScenarioReport[] = [];
     for (const agent of input.agents) {
+      // A bad key, empty balance or unknown model breaks every scenario for
+      // this agent, so once one scenario aborts, skip the rest of them.
+      let skipReason: string | undefined;
       for (const scenario of input.scenarios) {
-        reports.push(await this.evaluate(agent, scenario));
+        const report = await this.evaluate(agent, scenario, skipReason);
+        skipReason ??= report.runs.find((r) => r.metadata?.skipped)?.error;
+        reports.push(report);
       }
     }
     const createdAt = new Date().toISOString();
@@ -272,6 +309,7 @@ export class ReliabilityRunner {
       } catch (e) {
         latencyMs = performance.now() - started;
         lastError = e instanceof Error ? e.message : String(e);
+        if (isPermanent(e)) break;
       }
     }
 
@@ -319,4 +357,19 @@ export class ReliabilityRunner {
     run.status = run.criteria.every((c) => c.pass) ? "passed" : "failed";
     return run;
   }
+}
+
+function skippedRun(index: number, input: string, reason: string): RunRecord {
+  return {
+    index,
+    status: "error",
+    output: "",
+    toolCalls: [],
+    toolPath: toolPathOf([]),
+    criteria: [],
+    latencyMs: 0,
+    attempts: 0,
+    error: reason,
+    metadata: { input, skipped: true },
+  };
 }

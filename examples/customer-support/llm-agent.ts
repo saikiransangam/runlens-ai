@@ -1,4 +1,4 @@
-import type { AgentDefinition, ToolHandler } from "@runlens/core";
+import { PermanentError, type AgentDefinition, type ToolHandler } from "@runlens/core";
 
 /**
  * A real LLM support agent using any OpenAI-compatible chat completions API
@@ -71,7 +71,13 @@ export function llmAgent(opts: {
             tools: toolSpecs,
           }),
         });
-        if (!res.ok) throw new Error(`LLM request failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+        if (!res.ok) {
+          const text = await res.text();
+          const message = `LLM request failed: ${res.status} ${text.replace(/\s+/g, " ").slice(0, 200)}`;
+          // Auth, quota and unknown-model errors will not fix themselves on retry; rate limits might.
+          const permanent = (res.status >= 400 && res.status < 500 && res.status !== 429) || text.includes("insufficient_quota");
+          throw permanent ? new PermanentError(message) : new Error(message);
+        }
         const body = (await res.json()) as {
           choices: { message: Message }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number };

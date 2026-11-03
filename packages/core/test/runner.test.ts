@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PermanentError,
   ReliabilityRunner,
   mustCallTool,
   mustContain,
@@ -82,6 +83,22 @@ describe("ReliabilityRunner", () => {
     expect(attempts).toBe(6);
     expect(report.failureClusters[0]!.source).toBe("infrastructure");
     expect(report.stats.passRate).toBe(0);
+  });
+
+  it("does not retry permanent errors and stops after identical failures", async () => {
+    let calls = 0;
+    const agent: AgentDefinition = {
+      name: "no-credits",
+      async run() {
+        calls++;
+        throw new PermanentError("429 insufficient_quota");
+      },
+    };
+    const report = await new ReliabilityRunner({ runs: 20, concurrency: 1, retries: 2 }).evaluate(agent, scenario);
+    expect(calls).toBe(3);
+    expect(report.stats.errors).toBe(20);
+    expect(report.runs[19]!.error).toMatch(/^Skipped after 3 identical errors/);
+    expect(report.runs[19]!.attempts).toBe(0);
   });
 
   it("gates a suite and detects significant regressions against a baseline", async () => {

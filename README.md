@@ -55,8 +55,14 @@ flaky order service, so you can see every feature with ground truth. To compare 
 use any OpenAI-compatible endpoint:
 
 ```bash
-RUNLENS_LLM_MODELS=gpt-4.1-mini,gpt-4.1 OPENAI_API_KEY=sk-... pnpm example
+# Real models only, frozen tools (default: gpt-4.1-mini, gpt-5.4-nano, gpt-5.4-mini)
+OPENAI_API_KEY=sk-... pnpm --filter customer-support-example run reliability:llm
+RUNLENS_LLM_MODELS=gpt-4.1,gpt-5.4 OPENAI_API_KEY=sk-... pnpm --filter customer-support-example run reliability:llm
 ```
+
+Errors that can't succeed on retry (bad key, no credits, unknown model) are not retried. After three
+identical errors in a row, RunLens skips that model's remaining runs, so a misconfigured run costs a few
+requests instead of hundreds. Throw `PermanentError` from your own agents to get the same behavior.
 
 ## Usage
 

@@ -6,6 +6,7 @@
   "scripts": {
     "reliability": "runlens run --config runlens.config.ts --no-gate",
     "reliability:ci": "runlens run --config runlens.ci.config.ts",
+    "reliability:llm": "runlens run --config runlens.llm.config.ts --no-gate",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
