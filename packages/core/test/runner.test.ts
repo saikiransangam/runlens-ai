@@ -75,7 +75,7 @@ describe("ReliabilityRunner", () => {
         return { output: "30 days" };
       },
     };
-    const report = await new ReliabilityRunner({ runs: 3, timeoutMs: 10, retries: 1 }).evaluate(agent, {
+    const report = await new ReliabilityRunner({ runs: 3, timeoutMs: 10, retries: 1, retryDelayMs: 0 }).evaluate(agent, {
       ...scenario,
       criteria: [mustContain("30 days")],
     });
@@ -99,6 +99,24 @@ describe("ReliabilityRunner", () => {
     expect(report.stats.errors).toBe(20);
     expect(report.runs[19]!.error).toMatch(/^Skipped after 3 identical errors/);
     expect(report.runs[19]!.attempts).toBe(0);
+  });
+
+  it("skips an agent's remaining scenarios once one aborts", async () => {
+    let calls = 0;
+    const agent: AgentDefinition = {
+      name: "bad-key",
+      async run() {
+        calls++;
+        throw new PermanentError("401 invalid key");
+      },
+    };
+    const suite = await new ReliabilityRunner({ runs: 3, concurrency: 1 }).runSuite({
+      name: "s",
+      agents: [agent],
+      scenarios: [scenario, { ...scenario, id: "second" }, { ...scenario, id: "third" }],
+    });
+    expect(calls).toBe(3);
+    expect(suite.scenarios[2]!.aborted).toMatch(/401 invalid key/);
   });
 
   it("gates a suite and detects significant regressions against a baseline", async () => {

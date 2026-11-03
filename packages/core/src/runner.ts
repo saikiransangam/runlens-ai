@@ -51,6 +51,8 @@ export interface RunnerOptions {
   timeoutMs?: number;
   /** Retries for executions that throw (infrastructure errors only). Default 1. */
   retries?: number;
+  /** Delay before the first retry; doubles on each further retry, with jitter. Default 1000ms. */
+  retryDelayMs?: number;
   /** Default "frozen". See {@link ToolMode}. */
   toolMode?: ToolMode;
   /** k values for pass@k and pass^k. Default [1, 3, 5, 10]. */
@@ -197,6 +199,7 @@ export class ReliabilityRunner {
       concurrency: options.concurrency ?? 5,
       timeoutMs: options.timeoutMs ?? 60_000,
       retries: options.retries ?? 1,
+      retryDelayMs: options.retryDelayMs ?? 1000,
       toolMode: options.toolMode ?? "frozen",
       k: options.k ?? [1, 3, 5, 10],
       confidence: options.confidence ?? 0.95,
@@ -216,6 +219,7 @@ export class ReliabilityRunner {
     const limit = this.options.abortAfterIdenticalErrors;
     let streak = { error: "", count: 0 };
     let abortReason: string | undefined = skipReason;
+    let abortedHere = false;
 
     await pool(
       Array.from({ length: n }, (_, i) => i),
@@ -230,6 +234,7 @@ export class ReliabilityRunner {
           else streak = run.status === "error" ? { error: run.error ?? "", count: 1 } : { error: "", count: 0 };
           if (limit > 0 && streak.count >= limit && !abortReason) {
             abortReason = `Skipped after ${limit} identical errors: ${streak.error}`;
+            abortedHere = true;
           }
         }
         completed++;
@@ -251,6 +256,7 @@ export class ReliabilityRunner {
       failureClusters: clusterFailures(records),
       environmentVariance: detectEnvironmentVariance(records),
       runs: records,
+      ...(abortedHere || skipReason ? { aborted: abortReason } : {}),
     };
   }
 
@@ -263,7 +269,7 @@ export class ReliabilityRunner {
       let skipReason: string | undefined;
       for (const scenario of input.scenarios) {
         const report = await this.evaluate(agent, scenario, skipReason);
-        skipReason ??= report.runs.find((r) => r.metadata?.skipped)?.error;
+        skipReason ??= report.aborted;
         reports.push(report);
       }
     }
@@ -290,7 +296,7 @@ export class ReliabilityRunner {
     toolMode: ToolMode,
     cache: Map<string, Promise<{ result?: unknown; error?: string }>>,
   ): Promise<RunRecord> {
-    const { retries, timeoutMs } = this.options;
+    const { retries, timeoutMs, retryDelayMs } = this.options;
     let attempts = 0;
     let lastError = "";
     let recorded: ToolCall[] = [];
@@ -298,6 +304,11 @@ export class ReliabilityRunner {
     let latencyMs = 0;
 
     while (attempts <= retries) {
+      if (attempts > 0 && retryDelayMs > 0) {
+        // Exponential backoff with jitter, so rate-limited APIs get room to recover.
+        const delay = retryDelayMs * 2 ** (attempts - 1) * (0.75 + Math.random() * 0.5);
+        await new Promise((r) => setTimeout(r, delay));
+      }
       attempts++;
       recorded = [];
       const tools = createToolBox(agent.tools ?? {}, toolMode, cache, recorded);

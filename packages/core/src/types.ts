@@ -195,6 +195,8 @@ export interface ScenarioReport {
   failureClusters: FailureCluster[];
   environmentVariance: EnvironmentVariance[];
   runs: RunRecord[];
+  /** Set when runs were stopped early after repeated identical errors. */
+  aborted?: string;
 }
 
 export interface GateConfig {

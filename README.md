@@ -55,14 +55,23 @@ flaky order service, so you can see every feature with ground truth. To compare 
 use any OpenAI-compatible endpoint:
 
 ```bash
-# Real models only, frozen tools (default: gpt-4.1-mini, gpt-5.4-nano, gpt-5.4-mini)
+# Real models only, frozen tools. OpenRouter (one key, many providers):
+OPENROUTER_API_KEY=sk-or-... pnpm --filter customer-support-example run reliability:llm
+# Pick models / scenarios:
+RUNLENS_LLM_MODELS=openai/gpt-5.4-nano,anthropic/claude-haiku-5.5 RUNLENS_SCENARIOS=late-return \
+  OPENROUTER_API_KEY=sk-or-... pnpm --filter customer-support-example run reliability:llm
+# Or OpenAI directly:
 OPENAI_API_KEY=sk-... pnpm --filter customer-support-example run reliability:llm
-RUNLENS_LLM_MODELS=gpt-4.1,gpt-5.4 OPENAI_API_KEY=sk-... pnpm --filter customer-support-example run reliability:llm
 ```
+
+First real-model check (NVIDIA Nemotron 3.5 via OpenRouter's free tier, 5 runs of `late-return`): **4/5 passed,
+95% CI 37.6%–96.4%**. Every run took the same tool path; the one failure was an empty final answer. Five runs
+can't separate a 40% agent from a 95% one, which is the point of reporting the interval.
 
 Errors that can't succeed on retry (bad key, no credits, unknown model) are not retried. After three
 identical errors in a row, RunLens skips that model's remaining runs, so a misconfigured run costs a few
 requests instead of hundreds. Throw `PermanentError` from your own agents to get the same behavior.
+Retryable errors (rate limits, timeouts) back off exponentially with jitter (`retryDelayMs`, default 1s).
 
 ## Usage
 
